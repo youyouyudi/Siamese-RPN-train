@@ -1,9 +1,8 @@
 # Siamese-RPN-train
 Reimplement the Siamese-RPN training process
 ## Main framework of Siamese RPN
-
-Left side is Siamese subnetwork for feature extraction. Region proposal subnetwork lies in the middle, which has two branches, one for classification and the other for regression. Pair-wise correlation is adopted to obtain the output of two branches. Details of these two output feature maps are in the right side.
-In classification branch, the output feature map has 2k channels which corresponding to foreground and background of k anchors. In regression branch, the output feature map has 4k channels which corresponding to four coordinates used for proposal refinement of k anchors. In the figure, “ ⋆” denotes correlation operator.
+According to the paper High Performance Visual Tracking with Siamese Region Proposal Network on CVPR 2018,
+by Bo Li, Junjie Yan, Wei Wu, Zheng Zhu, Xiaolin Hu
 
 ## Inference
 Choose template
