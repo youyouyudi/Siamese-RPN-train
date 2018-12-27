@@ -14,7 +14,7 @@ import numpy as np
 import copy
 from os.path import realpath, dirname, join
 from net import SiamRPNBIG
-from inference_SiamRPN import SiamRPN_init, SiamRPN_track
+from inference_SiamRPN import SiamRPN_track
 from utils.utils import get_axis_aligned_bbox, cxy_wh_2_rect, Get_annotation
 from train_siamrpn import SiamRPNBIG_Lee,Firstframe_init,Secondframe_init
 
@@ -23,6 +23,8 @@ import logging
 import random
 
 print(torch.__version__)
+
+is_train = False
 def setup_logging(name):
     FORMAT = '%(levelname)s %(filename)s:%(lineno)4d: %(message)s'
     # Manually clear root loggers to prevent any module that may have called
@@ -43,12 +45,24 @@ def Get_imgs(inpath):
     return imgpaths
 
 # load net
-net_file = join(realpath(dirname(__file__)), 'SiamRPNBIG.model')
-#net_file = "model\\SiamRPNBIG_epoch200_VOT_0.2context.model"
+
+#net_file = join(realpath(dirname(__file__)), 'SiamRPNBIG.model')
+#net_file = "model\\lichong_model\\SiamRPNBIG_epoch88_0.5_VOT.model"
+net_file = "model\\SiamRPNBIG_epoch70_VOT.model"
+#net_file = "model\\SiamRPNBIG_epoch290_VOT_0.5context.model"
 net = SiamRPNBIG()
 net.id = 12345
-
+"""
 net.load_state_dict(torch.load(net_file))
+"""
+
+paras = torch.load(net_file)
+print("paras.keys()", paras.keys())
+net_dict = net.state_dict()
+pretrained_dict = torch.load(net_file)
+pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in net_dict}
+net_dict.update(pretrained_dict)
+net.load_state_dict(net_dict)
 
 #reinitial the layers except featureExtract layers
 """
@@ -63,36 +77,53 @@ for key in net.state_dict():
 """
 net.eval().cuda()
 #warm up
-for i in range(5):
-    net.temple(torch.autograd.Variable(torch.FloatTensor(1, 3, 127, 127)).cuda())
-    net(torch.autograd.Variable(torch.FloatTensor(1, 3, 255, 255)).cuda())
 
+for i in range(5):
+    net.temple(torch.autograd.Variable(torch.FloatTensor(1, 3, 143, 143)).cuda())
+    net(torch.autograd.Variable(torch.FloatTensor(1, 3, 287, 287)).cuda())
+
+"""
+params = []
+params += list(net.conv_cls1_1.parameters())
+params += list(net.conv_r1_1.parameters())
+params += list(net.conv_cls2_1.parameters())
+params += list(net.conv_r2_1.parameters())
+params += list(net.conv_cls1_2.parameters())
+params += list(net.conv_r1_2.parameters())
+params += list(net.conv_cls2_2.parameters())
+params += list(net.conv_r2_2.parameters())
+params += list(net.regress_adjust.parameters())
+"""
 
 params = []
 params += list(net.conv_cls1.parameters())
-params += list(net.conv_r1.parameters())
-params += list(net.conv_cls2.parameters())
-params += list(net.conv_r2.parameters())
-params += list(net.regress_adjust.parameters())
 
 optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9, weight_decay=0.0001)
 net.train().cuda()
 net.train(True)
 optimizer.zero_grad()
 
+infile = 'vot/list_1.txt'
+listfiles = []
+for line in open(infile):
+    val = line[0:-1]
+    listfiles.append(val)
+listfiles_test = listfiles[:]
+
 infile = 'vot/list.txt'
 listfiles = []
 for line in open(infile):
     val = line[0:-1]
     listfiles.append(val)
-
 listfiles_train = listfiles[:]
-listfiles_test = listfiles[20:]
-start_epoch = 31
-epochs = 400
+
+start_epoch = 0
+epochs = 200
 state = 0
 listfiles = listfiles_train
-epoch_size = 1000
+epoch_size = 0
+if is_train:
+    epoch_size = 1000
 # train using a random video. a pair consisits of row random frames, the template frame dosen't has to be a previous one on timeline.
 for epoch in range(start_epoch, epochs+start_epoch):
     print("epoch", epoch)
@@ -116,8 +147,15 @@ for epoch in range(start_epoch, epochs+start_epoch):
         gtptah = 'vot/' + val + '/groundtruth.txt'
         imgpaths = Get_imgs(inpath)
         length = len(imgpaths)
-        fir_index= random.randint(0, length - 1)
-        sec_index = random.randint(0, length - 1)
+        fir_index= random.randint(0, length - 6)
+        sec_index = random.randint(1, 5)
+        if_reverse = random.randint(0, 1)
+        if if_reverse==1:
+            tmp = sec_index
+            sec_index = fir_index
+            fir_index = tmp
+        sec_index = fir_index + sec_index
+        #sec_index = fir_index+1
         target_pos1, target_sz1 = Get_annotation(fir_index, gtptah)
         target_pos2, target_sz2 = Get_annotation(sec_index, gtptah)
 
@@ -128,9 +166,9 @@ for epoch in range(start_epoch, epochs+start_epoch):
 
         state = Firstframe_init(im,target_pos1,target_sz1,net)
         # random shift and random search region scale, to push the model to recover from previous error.
-        shift = np.array([target_sz2[0]*(random.random()-0.5)*0.75, target_sz2[1]*(random.random()-0.5)*0.75])
+        shift = np.array([target_sz2[0]*(random.random()-0.5)*0.7, target_sz2[1]*(random.random()-0.5)*0.7])
         state['target_pos'] = target_pos2 - shift
-        scale = 1.0 + (random.random()-0.5)*0.5
+        scale = 1.0 + (random.random()-0.5)*0.4
         print("scale",scale)
         Secondframe_init(True, state,im2,target_pos2,target_sz2,optimizer, scale)
         optimizer.step()
@@ -138,7 +176,7 @@ for epoch in range(start_epoch, epochs+start_epoch):
         torch.save(net.state_dict(), "model/SiamRPNBIG_epoch" + str(epoch) + "_VOT" + ".model")
 
     #evaluate
-    if True:
+    if not is_train:
         net.eval().cuda()
         net.eval()
         for j in range(len(listfiles_test)):
@@ -161,6 +199,7 @@ for epoch in range(start_epoch, epochs+start_epoch):
                 if i==0:
                     static_target_sz = target_sz1
                     state = Firstframe_init(im, target_pos1, target_sz1, net)
+                    print("target_sz1", target_sz1)
                     #state = SiamRPN_init(im, target_pos, target_sz, net)
                     cv2.destroyAllWindows()
 
@@ -171,7 +210,7 @@ for epoch in range(start_epoch, epochs+start_epoch):
 
                 # reinitial by present frame if the score is high enough
                 """
-                if state['score']>0.99:
+                if state['score']>0.7:
                     state = Firstframe_init(im2, state['target_pos'], state['target_sz'], net)
                 """
                 res = cxy_wh_2_rect(state['target_pos'], state['target_sz'])
